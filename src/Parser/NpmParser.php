@@ -11,15 +11,33 @@ class NpmParser extends BaseParser
 {
     protected FileType $originFileType = FileType::NODE_PACKAGE_LOCK_FILE;
     /**
-     * Expects a package-lock.json file with a "packages" key.
-     * The "packages" value is an associative array where the root package is keyed by "".
+     * Expects a package-lock.json file with either "packages" key (v2+) or "dependencies" key (v1).
+     * For v2+, the "packages" value is an associative array where the root package is keyed by "".
+     * For v1, the "dependencies" value is an associative array of packages.
      */
     protected function parseJson(array $json): void
     {
-        if (empty($json) || !isset($json['packages'])) {
+        if (empty($json)) {
             throw new \Exception('Invalid package-lock file');
         }
-        $packages = $json['packages']; // keys are package paths (e.g., "", "node_modules/foo", etc.)
+
+        $lockfileVersion = $json['lockfileVersion'] ?? 1;
+
+        if ($lockfileVersion >= 2) {
+            if (!isset($json['packages'])) {
+                throw new \Exception('Invalid package-lock file');
+            }
+            $packages = $json['packages'];
+        } else {
+            // For lockfileVersion 1, use 'dependencies' and transform to packages format
+            if (!isset($json['dependencies'])) {
+                throw new \Exception('Invalid package-lock file');
+            }
+            $packages = ["" => $json]; // Root package
+            foreach ($json['dependencies'] as $name => $dep) {
+                $packages["node_modules/" . $name] = $dep;
+            }
+        }
 
         // If the noDevPackages flag is set, remove dev packages (except the root package).
         if ($this->noDevPackages === true) {
